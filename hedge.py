@@ -388,7 +388,7 @@ def main():
         # We use a throwaway call just to check length
         history_check = analyzer.get_price_history(target_id)
         if history_check is None or len(history_check) < 10:
-             print(f"❌ Error: '{target_market['title']}' has insufficient price history ({0 if history_check is None else len(history_check)} hours).")
+             print(f" Error: '{target_market['title']}' has insufficient price history ({0 if history_check is None else len(history_check)} hours).")
              print("This market is likely illiquid or inactive. Please select a different market.")
              target_market = None # Reset and loop
         else:
@@ -439,7 +439,7 @@ def main():
         print("  (No positive correlations found)")
     
     # --- Display Hedges ---
-    print("\n--- 🛡️ Top NEGATIVE Correlations (Potential Hedges) ---")
+    print("\n---  Top NEGATIVE Correlations (Potential Hedges) ---")
     print("If your market goes DOWN, these likely go UP.")
     
     # Get bottom 5 (most negative)
