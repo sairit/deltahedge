@@ -70,28 +70,52 @@ function MarketSearch() {
                 <stop offset="50%" stopColor="#A855F7" />
                 <stop offset="100%" stopColor="#C084FC" />
               </linearGradient>
+              {/* Mask to punch hole where arrow crosses delta */}
+              <mask id="deltaMask">
+                <rect width="100" height="100" fill="white"/>
+                {/* Gap where arrow punches through - right side of triangle */}
+                <line 
+                  x1="66" y1="26" 
+                  x2="82" y2="42" 
+                  stroke="black" 
+                  strokeWidth="14"
+                  strokeLinecap="round"
+                />
+              </mask>
             </defs>
-            {/* Delta triangle */}
+            {/* Delta triangle with mask for punch-through effect */}
             <path 
               d="M50 8 L92 85 L8 85 Z" 
               fill="none" 
               stroke="url(#deltaGradient)" 
               strokeWidth="8"
               strokeLinejoin="round"
+              mask="url(#deltaMask)"
             />
             {/* Upward trending arrow/graph line inside */}
             <path 
-              d="M22 68 L38 52 L52 60 L72 32" 
+              d="M22 68 L38 52 L52 60 L62 48" 
               fill="none" 
               stroke="url(#arrowGradient)" 
               strokeWidth="6"
               strokeLinecap="round"
               strokeLinejoin="round"
             />
-            {/* Arrow head - larger and crisper */}
-            <polygon 
-              points="72,32 62,34 66,44" 
-              fill="url(#arrowGradient)"
+            {/* Arrow head - Lucide-style trending up arrow */}
+            <polyline 
+              points="56,32 72,32 72,48" 
+              fill="none"
+              stroke="url(#arrowGradient)" 
+              strokeWidth="6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <line
+              x1="62" y1="48"
+              x2="72" y2="32"
+              stroke="url(#arrowGradient)"
+              strokeWidth="6"
+              strokeLinecap="round"
             />
           </svg>
         </div>
