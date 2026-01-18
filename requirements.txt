@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+pandas
+numpy
+requests
+google-generativeai
+python-dotenv
+tokenc
