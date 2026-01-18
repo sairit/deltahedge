@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { DollarSign, TrendingUp, TrendingDown } from 'lucide-react'
+import { DollarSign, TrendingUp, TrendingDown, Users } from 'lucide-react'
 
-function PositionEntry({ position, setPosition, marketTitle }) {
+function PositionEntry({ position, setPosition, marketTitle, isMultiOption, outcomeName }) {
   const [amount, setAmount] = useState(position.amount.toString())
   const [direction, setDirection] = useState(position.direction)
 
@@ -22,6 +22,20 @@ function PositionEntry({ position, setPosition, marketTitle }) {
     <div className="glass rounded-2xl p-6 md:p-8">
       <h2 className="text-xl font-semibold mb-6">Enter Your Position</h2>
       
+      {/* Multi-option indicator */}
+      {isMultiOption && outcomeName && (
+        <div className="mb-4 p-3 bg-purple-900/30 border border-purple-500/30 rounded-xl">
+          <div className="flex items-center gap-2 text-sm">
+            <Users size={16} className="text-purple-400" />
+            <span className="text-gray-400">Betting on:</span>
+            <span className="text-purple-300 font-semibold">{outcomeName}</span>
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            This is a multi-option market. Each candidate/team trades independently.
+          </p>
+        </div>
+      )}
+      
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Amount Input */}
         <div>
@@ -40,29 +54,33 @@ function PositionEntry({ position, setPosition, marketTitle }) {
         
         {/* Direction Selection */}
         <div>
-          <label className="block text-sm text-gray-400 mb-2">Position Direction</label>
+          <label className="block text-sm text-gray-400 mb-2">
+            {isMultiOption && outcomeName 
+              ? `${outcomeName} will win?` 
+              : 'Position Direction'}
+          </label>
           <div className="flex gap-3">
             <button
               onClick={() => handleDirectionChange('YES')}
               className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl glass transition-all ${
                 direction === 'YES'
-                  ? 'bg-purple-600/30 border-2 border-purple-500/50 glow-purple'
+                  ? 'bg-green-600/30 border-2 border-green-500/50'
                   : 'hover:glass-strong'
               }`}
             >
-              <TrendingUp size={20} className={direction === 'YES' ? 'text-purple-300' : 'text-gray-400'} />
-              <span className={direction === 'YES' ? 'text-purple-300 font-semibold' : 'text-gray-400'}>YES</span>
+              <TrendingUp size={20} className={direction === 'YES' ? 'text-green-300' : 'text-gray-400'} />
+              <span className={direction === 'YES' ? 'text-green-300 font-semibold' : 'text-gray-400'}>YES</span>
             </button>
             <button
               onClick={() => handleDirectionChange('NO')}
               className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl glass transition-all ${
                 direction === 'NO'
-                  ? 'bg-purple-600/30 border-2 border-purple-500/50 glow-purple'
+                  ? 'bg-red-600/30 border-2 border-red-500/50'
                   : 'hover:glass-strong'
               }`}
             >
-              <TrendingDown size={20} className={direction === 'NO' ? 'text-purple-300' : 'text-gray-400'} />
-              <span className={direction === 'NO' ? 'text-purple-300 font-semibold' : 'text-gray-400'}>NO</span>
+              <TrendingDown size={20} className={direction === 'NO' ? 'text-red-300' : 'text-gray-400'} />
+              <span className={direction === 'NO' ? 'text-red-300 font-semibold' : 'text-gray-400'}>NO</span>
             </button>
           </div>
         </div>

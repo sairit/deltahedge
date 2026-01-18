@@ -15,6 +15,11 @@ export const getMarkets = async (category = null) => {
   return response.data
 }
 
+export const getEventOutcomes = async (eventId) => {
+  const response = await api.get(`/event/${eventId}/outcomes`)
+  return response.data
+}
+
 export const analyzeMarket = async (targetId, category = 'global') => {
   const response = await api.get('/analyze', {
     params: { target_id: targetId, category },

@@ -5,9 +5,13 @@ from typing import List, Optional, Dict, Any
 import pandas as pd
 import numpy as np
 from hedge import PolymarketAnalyzer
-from agent import run_agent
 from concurrent.futures import ThreadPoolExecutor
+from tokenc import TokenClient
+import os
+from dotenv import load_dotenv
+from google import genai
 
+load_dotenv()
 app = FastAPI(title="PolyHedge API")
 
 # Enable CORS for frontend
@@ -21,6 +25,53 @@ app.add_middleware(
 
 analyzer = PolymarketAnalyzer()
 
+# --- AI Agent Setup ---
+API_KEY = os.getenv("GOOGLE_API_KEY")
+
+# Initialize the new SDK Client
+# If using AI Studio (most common), pass the api_key directly
+client_gemini = genai.Client(api_key=API_KEY)
+
+# Initialize TokenClient for compression
+token_client = TokenClient(api_key=os.getenv("TOKENC_API_KEY"))
+
+def run_agent(query: str) -> str:
+    try:
+        system_instruction = (
+            "You are a calm, analytical trading assistant for a prediction market dashboard. "
+            "Explain correlations and risks clearly and concisely. "
+            "No emojis. No hype. No disclaimers. Max 3-5 sentences. "
+            "Focus on macro factors or logical connections."
+        )
+
+        full_prompt = f"{system_instruction}\n\nQuery: {query}"
+        
+        # 1. Compress the prompt
+        compressed_text = token_client.compress_input(
+            input=full_prompt,
+            aggressiveness=0.2
+        ).output
+
+        # 2. Generate Content
+        # Ensure the model string matches the Jan 2026 release: 'gemini-3-flash-preview'
+        response = client_gemini.models.generate_content(
+            model="gemini-3-flash-preview",
+            contents=compressed_text
+        )
+
+        if not response.text:
+            return "The model returned an empty response."
+
+        return response.text.strip()
+            
+    except Exception as e:
+        # CRITICAL: Print the error to your console so you can debug!
+        print(f"--- AGENT ERROR DEBUG ---")
+        print(f"Type: {type(e).__name__}")
+        print(f"Message: {str(e)}")
+        print(f"--------------------------")
+        return "Unable to generate explanation at the moment."
+    
 # --- Models ---
 
 class MarketSummary(BaseModel):
@@ -30,6 +81,18 @@ class MarketSummary(BaseModel):
     question: str
     age: str
     volume_24h: Optional[float] = 0
+    # Multi-option market fields
+    is_multi_option: Optional[bool] = False
+    outcome_name: Optional[str] = None  # e.g., "Kamala Harris" for multi-option markets
+    total_outcomes: Optional[int] = None
+    event_id: Optional[str] = None  # For grouping outcomes
+    no_token_id: Optional[str] = None  # NO token for direct trading
+
+class EventOutcome(BaseModel):
+    token_id: str
+    no_token_id: Optional[str] = None
+    outcome_name: str
+    volume_24h: Optional[float] = 0
 
 class CorrelationResult(BaseModel):
     market_title: str
@@ -37,6 +100,9 @@ class CorrelationResult(BaseModel):
     correlation: float
     visual_beta: float # Simplified beta for UId
     explanation: str
+    # Multi-option market fields
+    is_multi_option: Optional[bool] = False
+    outcome_name: Optional[str] = None
 
 class PricePoint(BaseModel):
     time: str # ISO string or simple time
@@ -88,7 +154,7 @@ def search_markets(category: Optional[str] = None):
     Fetches top markets. 
     Category slugs: politics, crypto, sports, business, science, pop-culture
     """
-    limit = 100 if category else 20
+    limit = 30 if category else 15  # Reduced for performance
     # Map "global" to None
     slug = None if category == "global" else category
     
@@ -97,15 +163,58 @@ def search_markets(category: Optional[str] = None):
         # Convert to lightweight model
         results = []
         for m in markets:
+            # For multi-option markets, include the outcome name in the title
+            display_title = m['title']
+            if m.get('is_multi_option') and m.get('outcome_name'):
+                display_title = f"{m['title']}: {m['outcome_name']}"
+            
             results.append(MarketSummary(
                 id=m['id'],
-                title=m['title'],
+                title=display_title,
                 token_id=m['token_id'],
                 question=m['question'],
                 age=m.get('age', 'Active'),
-                volume_24h=m.get('volume_24h', 0)
+                volume_24h=m.get('volume_24h', 0),
+                is_multi_option=m.get('is_multi_option', False),
+                outcome_name=m.get('outcome_name'),
+                total_outcomes=m.get('total_outcomes'),
+                event_id=m.get('event_id'),
+                no_token_id=m.get('no_token_id')
             ))
         return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/event/{event_id}/outcomes", response_model=List[EventOutcome])
+def get_event_outcomes(event_id: str):
+    """
+    Gets all outcomes for a multi-option event.
+    Returns list of outcomes with their token IDs and names.
+    """
+    try:
+        # Fetch all markets
+        markets = analyzer.get_top_markets(limit=100)
+        
+        # Filter to only this event's markets
+        event_markets = [m for m in markets if m.get('event_id') == event_id]
+        
+        if not event_markets:
+            raise HTTPException(status_code=404, detail="Event not found")
+        
+        outcomes = []
+        for m in event_markets:
+            outcomes.append(EventOutcome(
+                token_id=m['token_id'],
+                no_token_id=m.get('no_token_id'),
+                outcome_name=m.get('outcome_name', m.get('title', 'Unknown')),
+                volume_24h=m.get('volume_24h', 0)
+            ))
+        
+        # Sort by volume (most popular first)
+        outcomes.sort(key=lambda x: x.volume_24h or 0, reverse=True)
+        return outcomes
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -121,7 +230,8 @@ def analyze(target_id: str, category: str = "global"):
     # 1. Fetch comparison pool (this repeats logic but it's stateless)
     slug = None if category == "global" else category
     try:
-        raw_markets = analyzer.get_top_markets(limit=50 if category == "global" else 30, tag_slug=slug)
+        # Limit to top 200 markets for comparison
+        raw_markets = analyzer.get_top_markets(limit=200, tag_slug=slug)
         
         # 2. Filter dead markets (Quick check, maybe skip deep check to save time or stick to lightweight check)
         # Re-implementing simplified check for speed
@@ -196,22 +306,37 @@ def analyze(target_id: str, category: str = "global"):
                             beta = score * 1.2
                         
                         explanation = "Strong inverse movement." if is_hedge else "Moves in lockstep."
+                        
+                        # For multi-option markets, include the outcome name in the title
+                        display_title = m_info['title']
+                        if m_info.get('is_multi_option') and m_info.get('outcome_name'):
+                            display_title = f"{m_info['title']}: {m_info['outcome_name']}"
+                        
                         correlation_results.append({
-                            "market_title": m_info['title'],
+                            "market_title": display_title,
                             "token_id": tid,
                             "correlation": round(score, 2),
                             "visual_beta": round(beta, 2),
-                            "explanation": explanation
+                            "explanation": explanation,
+                            "is_multi_option": m_info.get('is_multi_option', False),
+                            "outcome_name": m_info.get('outcome_name'),
+                            "total_outcomes": m_info.get('total_outcomes')
                         })
 
             add_res(top_pos)
             add_res(top_neg, is_hedge=True)
+            
+            # Sort by absolute correlation strength (strongest first)
+            correlation_results.sort(key=lambda x: abs(x['correlation']), reverse=True)
 
         return {
             "target": {
                 "title": target_market['title'],
                 "current_price": chart_data[-1]['target_price'] if chart_data else 0,
-                "volatility": round(float(volatility), 4)
+                "volatility": round(float(volatility), 4),
+                "is_multi_option": target_market.get('is_multi_option', False),
+                "outcome_name": target_market.get('outcome_name'),
+                "total_outcomes": target_market.get('total_outcomes')
             },
             "history": chart_data,
             "correlations": correlation_results

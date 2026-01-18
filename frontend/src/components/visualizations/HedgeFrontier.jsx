@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts'
 
 function HedgeFrontier({ hedges, position }) {
   const data = useMemo(() => {
@@ -13,13 +13,18 @@ function HedgeFrontier({ hedges, position }) {
       // Robustness proxy (using visual_beta as proxy)
       const robustness = Math.abs(hedge.visual_beta) * 100
       
+      // Create short label (first 2-3 words of market title)
+      const shortName = hedge.market_title.split(' ').slice(0, 3).join(' ').substring(0, 20)
+      
       return {
         cost: Math.round(hedgeCost),
         impact: Math.round(drawdownReduction),
         size: Math.min(robustness, 200), // Cap size for visualization
         name: hedge.market_title,
+        shortName: shortName + (hedge.market_title.length > 20 ? '...' : ''),
         correlation: hedge.correlation,
         direction: hedge.correlation < 0 ? 'YES' : 'NO',
+        index: index + 1,
       }
     })
   }, [hedges, position])
@@ -27,28 +32,36 @@ function HedgeFrontier({ hedges, position }) {
   const COLORS = ['#A855F7', '#9333EA', '#7E22CE', '#6B21A8', '#581C87']
 
   return (
-    <div className="h-full">
+    <div className="h-full w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <ScatterChart margin={{ top: 10, right: 10, bottom: 20, left: 10 }}>
+        <ScatterChart margin={{ top: 30, right: 30, bottom: 50, left: 60 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
           <XAxis
             type="number"
             dataKey="cost"
             name="Hedge Cost"
-            label={{ value: 'Cost ($)', position: 'bottom', offset: 0, fill: '#6B7280', fontSize: 12 }}
             stroke="#4B5563"
-            tick={{ fill: '#6B7280', fontSize: 10 }}
-            tickLine={false}
-          />
+            tick={{ fill: '#9CA3AF', fontSize: 11 }}
+            tickLine={{ stroke: '#6B7280' }}
+            tickFormatter={(value) => `$${value}`}
+          >
+            <text x="50%" y={45} textAnchor="middle" fill="#9CA3AF" fontSize={12}>
+              Hedge Cost ($)
+            </text>
+          </XAxis>
           <YAxis
             type="number"
             dataKey="impact"
             name="Drawdown Reduction"
-            label={{ value: 'Impact ($)', angle: -90, position: 'insideLeft', offset: 10, fill: '#6B7280', fontSize: 12 }}
             stroke="#4B5563"
-            tick={{ fill: '#6B7280', fontSize: 10 }}
-            tickLine={false}
-          />
+            tick={{ fill: '#9CA3AF', fontSize: 11 }}
+            tickLine={{ stroke: '#6B7280' }}
+            tickFormatter={(value) => `$${value}`}
+          >
+            <text x={-40} y="50%" textAnchor="middle" fill="#9CA3AF" fontSize={12} transform="rotate(-90, -40, 175)">
+              Impact ($)
+            </text>
+          </YAxis>
           <Tooltip
             cursor={{ strokeDasharray: '3 3' }}
             contentStyle={{
@@ -82,9 +95,17 @@ function HedgeFrontier({ hedges, position }) {
                 fill={COLORS[index % COLORS.length]}
                 fillOpacity={0.8}
                 stroke={COLORS[index % COLORS.length]}
-                strokeWidth={1}
+                strokeWidth={2}
               />
             ))}
+            <LabelList 
+              dataKey="index" 
+              position="top" 
+              fill="#E5E7EB"
+              fontSize={10}
+              formatter={(value) => `#${value}`}
+              offset={8}
+            />
           </Scatter>
         </ScatterChart>
       </ResponsiveContainer>

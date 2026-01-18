@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, TrendingUp, Clock } from 'lucide-react'
+import { Search, TrendingUp, Clock, Users } from 'lucide-react'
 import { getMarkets } from '../api'
 import { motion } from 'framer-motion'
 
@@ -54,14 +54,56 @@ function MarketSearch() {
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="mb-8"
+        className="mb-8 flex items-center gap-4"
       >
-        <h1 className="text-4xl md:text-5xl font-bold mb-2 text-white">
-          DeltaHedge
-        </h1>
-        <p className="text-gray-400 text-sm md:text-base">
-          Polymarket Analytics & Hedging Intelligence
-        </p>
+        {/* Logo - Purple gradient delta with upward arrow */}
+        <div className="relative w-14 h-14 md:w-16 md:h-16 flex-shrink-0">
+          <svg viewBox="0 0 100 100" className="w-full h-full">
+            <defs>
+              <linearGradient id="deltaGradient" x1="0%" y1="100%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#7C3AED" />
+                <stop offset="50%" stopColor="#A855F7" />
+                <stop offset="100%" stopColor="#C084FC" />
+              </linearGradient>
+              <linearGradient id="arrowGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#7C3AED" />
+                <stop offset="50%" stopColor="#A855F7" />
+                <stop offset="100%" stopColor="#C084FC" />
+              </linearGradient>
+            </defs>
+            {/* Delta triangle */}
+            <path 
+              d="M50 8 L92 85 L8 85 Z" 
+              fill="none" 
+              stroke="url(#deltaGradient)" 
+              strokeWidth="8"
+              strokeLinejoin="round"
+            />
+            {/* Upward trending arrow/graph line inside */}
+            <path 
+              d="M22 68 L38 52 L52 60 L72 32" 
+              fill="none" 
+              stroke="url(#arrowGradient)" 
+              strokeWidth="6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            {/* Arrow head - larger and crisper */}
+            <polygon 
+              points="72,32 62,34 66,44" 
+              fill="url(#arrowGradient)"
+            />
+          </svg>
+        </div>
+        
+        <div>
+          <h1 className="text-4xl md:text-5xl font-bold mb-1 text-white">
+            DeltaHedge
+          </h1>
+          <p className="text-gray-400 text-sm md:text-base">
+            Polymarket Analytics & Hedging Intelligence
+          </p>
+        </div>
       </motion.div>
 
       {/* Search Bar */}
@@ -181,9 +223,19 @@ function MarketCard({ market, index, onClick }) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.05 }}
       onClick={onClick}
-      className="glass rounded-xl p-5 cursor-pointer hover:glass-strong hover:border-purple-500/30 border border-transparent transition-all group"
+      className="glass rounded-xl p-5 cursor-pointer hover:glass-strong hover:border-purple-500/30 border border-transparent transition-all group relative"
     >
-      <div className="flex items-start justify-between mb-3">
+      {/* Multi-option market indicator */}
+      {market.is_multi_option && (
+        <div className="absolute -top-2 left-4 flex items-center gap-1.5 px-2 py-0.5 bg-purple-600/90 rounded-full border border-purple-400/50">
+          <Users size={10} className="text-purple-200" />
+          <span className="text-[10px] font-medium text-purple-100">
+            {market.outcome_name || `${market.total_outcomes} options`}
+          </span>
+        </div>
+      )}
+      
+      <div className={`flex items-start justify-between ${market.is_multi_option ? 'mt-2' : ''} mb-3`}>
         <div className="flex-1 min-w-0">
           <h3 className="text-base font-semibold text-white group-hover:text-purple-300 transition-colors line-clamp-2 mb-1">
             {market.title}

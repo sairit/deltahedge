@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine, ResponsiveContainer } from 'recharts'
 
-function PayoffCurve({ position, currentPrice, volatility, hedges, selectedHedge }) {
+function PayoffCurve({ position, currentPrice, volatility, hedges, selectedHedge, showMetrics = true }) {
   const data = useMemo(() => {
     const points = []
     const { amount, direction } = position
@@ -10,20 +10,17 @@ function PayoffCurve({ position, currentPrice, volatility, hedges, selectedHedge
       const price = prob / 100
       
       // Unhedged P&L calculation
-      // For YES: Buy at currentPrice, if outcome happens (price=1) you win (1-currentPrice)*amount
-      //          If outcome doesn't happen (price=0) you lose currentPrice*amount
-      // For NO: Buy NO at (1-currentPrice), if outcome doesn't happen you win currentPrice*amount
-      //         If outcome happens you lose (1-currentPrice)*amount
+      // For YES: Buy at currentPrice, win if outcome probability goes to 100%, lose if goes to 0%
+      // For NO: Buy at (1-currentPrice), win if outcome probability goes to 0%, lose if goes to 100%
       let unhedgedPL = 0
       if (direction === 'YES') {
-        // YES position: profit if price goes to 1, loss if goes to 0
+        // YES position: profit when probability increases toward 100%
         unhedgedPL = (price - currentPrice) * amount
       } else {
-        // NO position: profit if price goes to 0, loss if goes to 1
-        // NO price = 1 - YES price
-        const noPrice = 1 - price
-        const noCurrentPrice = 1 - currentPrice
-        unhedgedPL = (noPrice - noCurrentPrice) * amount
+        // NO position: profit when probability decreases toward 0%
+        // If prob goes to 0, NO holders win (1-0) - (1-currentPrice) = currentPrice
+        // If prob goes to 100, NO holders lose: (1-1) - (1-currentPrice) = -(1-currentPrice)
+        unhedgedPL = (currentPrice - price) * amount
       }
       
       // Hedged P&L (if hedge selected)
@@ -68,6 +65,9 @@ function PayoffCurve({ position, currentPrice, volatility, hedges, selectedHedge
   }, [position, currentPrice, hedges, selectedHedge])
 
   const breakevenProb = useMemo(() => {
+    // For both YES and NO, breakeven is at current price
+    // YES breaks even when prob = currentPrice
+    // NO breaks even when prob = currentPrice (inverted axis)
     return currentPrice * 100
   }, [currentPrice])
 
@@ -87,21 +87,31 @@ function PayoffCurve({ position, currentPrice, volatility, hedges, selectedHedge
   }, [data, selectedHedge])
 
   return (
-    <div>
-      <ResponsiveContainer width="100%" height={400}>
-        <LineChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: 50 }}>
+    <div className="flex flex-col h-full">
+      <ResponsiveContainer width="100%" height={showMetrics ? 280 : "100%"}>
+        <LineChart data={data} margin={{ top: 20, right: 30, left: 60, bottom: 40 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#4B5563" opacity={0.3} />
           <XAxis
             dataKey="probability"
-            label={{ value: 'Outcome Probability (%)', position: 'bottom', offset: 0 }}
             stroke="#9CA3AF"
-            tick={{ fill: '#9CA3AF' }}
-          />
+            tick={{ fill: '#9CA3AF', fontSize: 11 }}
+            tickLine={{ stroke: '#6B7280' }}
+            domain={[0, 100]}
+          >
+            <text x="50%" y={35} textAnchor="middle" fill="#9CA3AF" fontSize={12}>
+              {position.direction === 'YES' ? 'Event Probability (%)' : 'Event Probability (%)'}
+            </text>
+          </XAxis>
           <YAxis
-            label={{ value: 'Profit / Loss ($)', angle: -90, position: 'insideLeft' }}
             stroke="#9CA3AF"
-            tick={{ fill: '#9CA3AF' }}
-          />
+            tick={{ fill: '#9CA3AF', fontSize: 11 }}
+            tickLine={{ stroke: '#6B7280' }}
+            tickFormatter={(value) => `$${value}`}
+          >
+            <text x={-30} y="50%" textAnchor="middle" fill="#9CA3AF" fontSize={12} transform="rotate(-90, -30, 200)">
+              P/L ($)
+            </text>
+          </YAxis>
           <Tooltip
             contentStyle={{
               backgroundColor: 'rgba(17, 24, 39, 0.95)',
@@ -145,26 +155,22 @@ function PayoffCurve({ position, currentPrice, volatility, hedges, selectedHedge
       </ResponsiveContainer>
       
       {/* Key Analytics */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-        <div className="glass rounded-xl p-4">
-          <div className="text-gray-400 text-sm mb-1">Breakeven Probability</div>
-          <div className="text-purple-400 text-xl font-semibold">{breakevenProb.toFixed(1)}%</div>
+      {showMetrics && (
+      <div className="grid grid-cols-3 gap-3 mt-4 shrink-0">
+        <div className="glass rounded-xl p-3">
+          <div className="text-gray-400 text-xs mb-1">Breakeven Probability</div>
+          <div className="text-purple-400 text-lg font-semibold">{breakevenProb.toFixed(1)}%</div>
         </div>
-        <div className="glass rounded-xl p-4">
-          <div className="text-gray-400 text-sm mb-1">Max Loss</div>
-          <div className="text-red-400 text-xl font-semibold">${maxLoss.toLocaleString()}</div>
+        <div className="glass rounded-xl p-3">
+          <div className="text-gray-400 text-xs mb-1">Max Loss</div>
+          <div className="text-red-400 text-lg font-semibold">${Math.abs(maxLoss).toLocaleString()}</div>
         </div>
-        <div className="glass rounded-xl p-4">
-          <div className="text-gray-400 text-sm mb-1">Max Gain</div>
-          <div className="text-green-400 text-xl font-semibold">${maxGain.toLocaleString()}</div>
+        <div className="glass rounded-xl p-3">
+          <div className="text-gray-400 text-xs mb-1">Max Gain</div>
+          <div className="text-green-400 text-lg font-semibold">${maxGain.toLocaleString()}</div>
         </div>
-        {selectedHedge && (
-          <div className="glass rounded-xl p-4">
-            <div className="text-gray-400 text-sm mb-1">Downside Reduction</div>
-            <div className="text-purple-400 text-xl font-semibold">{downsideReduction.toFixed(1)}%</div>
-          </div>
-        )}
       </div>
+      )}
     </div>
   )
 }

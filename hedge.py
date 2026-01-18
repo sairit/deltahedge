@@ -36,8 +36,24 @@ class PolymarketAnalyzer:
             market_list = []
             for e in events:
                 if e.get('markets'):
-                    for m in e['markets']:
-                        # Get outcomes - check if binary market
+                    event_markets = e['markets']
+                    num_markets_in_event = len(event_markets)
+                    
+                    # Collect all sibling token IDs for multi-option events
+                    sibling_tokens = []
+                    if num_markets_in_event > 1:
+                        for m in event_markets:
+                            clob = m.get('clobTokenIds', [])
+                            if isinstance(clob, str):
+                                try:
+                                    clob = json.loads(clob)
+                                except:
+                                    clob = []
+                            if clob:
+                                sibling_tokens.append(clob[0])  # YES token of each sibling
+                    
+                    for m in event_markets:
+                        # Get outcomes and clob token IDs
                         outcomes = m.get('outcomes', [])
                         clob_ids = m.get('clobTokenIds', [])
                         
@@ -47,47 +63,60 @@ class PolymarketAnalyzer:
                             except json.JSONDecodeError:
                                 clob_ids = []
                         
-                        # Only include binary markets (exactly 2 token IDs = YES/NO market)
-                        # Check both outcomes and clob_ids to ensure binary market
-                        is_binary = len(clob_ids) == 2
-                        if outcomes:
-                            is_binary = is_binary and len(outcomes) == 2
+                        if isinstance(outcomes, str):
+                            try:
+                                outcomes = json.loads(outcomes)
+                            except json.JSONDecodeError:
+                                outcomes = []
                         
-                        if is_binary:
-                            # Calculate Age
-                            created_at = e.get('creationDate')
-                            age_str = "?"
-                            age_hours = 0
-                            if created_at:
-                                try:
-                                    create_dt = pd.to_datetime(created_at)
-                                    now = pd.Timestamp.now(tz=create_dt.tz)
-                                    diff = now - create_dt
-                                    age_hours = diff.total_seconds() / 3600
-                                    days = diff.days
-                                    if days < 1:
-                                        age_str = f"{int(age_hours)}h"
-                                    else:
-                                        age_str = f"{days}d"
-                                except:
-                                    pass
-                            
-                            # Get volume if available
-                            volume_24h = m.get('volume24hr', 0) or e.get('volume24hr', 0)
-                            
-                            # Create market entry for YES outcome (index 0)
-                            market_list.append({
-                                'title': e['title'],
-                                'question': m['question'],
-                                'token_id': clob_ids[0],  # YES token
-                                'id': m['id'],
-                                'tags': e.get('tags', []),
-                                'age': age_str,
-                                'age_hours': age_hours,
-                                'volume_24h': volume_24h,
-                                'outcomes': outcomes,
-                                'is_binary': True
-                            })
+                        # Skip if no valid token IDs
+                        if not clob_ids:
+                            continue
+                        
+                        # Calculate Age
+                        created_at = e.get('creationDate')
+                        age_str = "?"
+                        age_hours = 0
+                        if created_at:
+                            try:
+                                create_dt = pd.to_datetime(created_at)
+                                now = pd.Timestamp.now(tz=create_dt.tz)
+                                diff = now - create_dt
+                                age_hours = diff.total_seconds() / 3600
+                                days = diff.days
+                                if days < 1:
+                                    age_str = f"{int(age_hours)}h"
+                                else:
+                                    age_str = f"{days}d"
+                            except:
+                                pass
+                        
+                        # Get volume if available
+                        volume_24h = m.get('volume24hr', 0) or e.get('volume24hr', 0)
+                        
+                        # Determine if this is a multi-option market (event with multiple sub-markets)
+                        # Each sub-market has groupItemTitle which is the candidate/option name
+                        is_multi_option = num_markets_in_event > 1
+                        group_item_title = m.get('groupItemTitle', '')
+                        
+                        market_list.append({
+                            'title': e['title'],
+                            'question': m.get('question', e['title']),
+                            'token_id': clob_ids[0],  # YES token
+                            'no_token_id': clob_ids[1] if len(clob_ids) > 1 else None,  # NO token
+                            'id': m['id'],
+                            'event_id': e.get('id'),
+                            'tags': e.get('tags', []),
+                            'age': age_str,
+                            'age_hours': age_hours,
+                            'volume_24h': volume_24h,
+                            'outcomes': outcomes if outcomes else ['Yes', 'No'],
+                            'is_binary': not is_multi_option,
+                            'is_multi_option': is_multi_option,
+                            'outcome_name': group_item_title if is_multi_option else None,
+                            'total_outcomes': num_markets_in_event if is_multi_option else None,
+                            'sibling_tokens': sibling_tokens if is_multi_option else None
+                        })
             return market_list
         except Exception as e:
             print(f"Error fetching markets: {e}")
@@ -145,14 +174,24 @@ class PolymarketAnalyzer:
         # Store DataFrames in a list instead of iterative joining
         dfs = [target_df]
         valid_comparisons = []
+        seen_token_ids = {target_token_id}  # Track seen token IDs to avoid duplicates
 
-        print(f"Comparing against {len(comparison_markets)} other markets (this may take a moment)...")
+        # Deduplicate comparison markets by token_id and limit to 200
+        unique_markets = []
+        for m in comparison_markets:
+            if m['token_id'] not in seen_token_ids:
+                seen_token_ids.add(m['token_id'])
+                unique_markets.append(m)
+            if len(unique_markets) >= 200:
+                break
+
+        print(f"Comparing against {len(unique_markets)} unique markets (this may take a moment)...")
         
         # Use ThreadPoolExecutor for parallel fetching
         with ThreadPoolExecutor(max_workers=10) as executor:
             future_to_market = {
                 executor.submit(self.get_price_history, m['token_id']): m 
-                for m in comparison_markets if m['token_id'] != target_token_id
+                for m in unique_markets
             }
             
             for future in as_completed(future_to_market):
@@ -160,8 +199,11 @@ class PolymarketAnalyzer:
                 try:
                     df = future.result()
                     if df is not None and len(df) >= 10:  # Only include markets with enough data
-                        dfs.append(df)
-                        valid_comparisons.append(m)
+                        # Check if this token_id column already exists in dfs
+                        col_name = df.columns[0] if len(df.columns) > 0 else None
+                        if col_name and not any(col_name in d.columns for d in dfs):
+                            dfs.append(df)
+                            valid_comparisons.append(m)
                 except Exception as exc:
                     # Suppress errors for cleaner output
                     pass
@@ -172,7 +214,17 @@ class PolymarketAnalyzer:
             return None, [], "Not enough comparison markets with sufficient data."
 
         # Merge all dataframes on the Time Index (Outer Join)
-        combined_df = pd.concat(dfs, axis=1)
+        # First, ensure each df has unique index by keeping last value for duplicates
+        cleaned_dfs = []
+        for df in dfs:
+            # Remove duplicate indices by keeping last occurrence
+            if df.index.duplicated().any():
+                df = df[~df.index.duplicated(keep='last')]
+            cleaned_dfs.append(df)
+        
+        combined_df = pd.concat(cleaned_dfs, axis=1)
+        # Remove any duplicate columns
+        combined_df = combined_df.loc[:, ~combined_df.columns.duplicated()]
         
         print(f"[DEBUG] Combined DataFrame shape: {combined_df.shape}")
 
