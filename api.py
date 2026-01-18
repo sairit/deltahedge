@@ -35,7 +35,7 @@ class CorrelationResult(BaseModel):
     market_title: str
     token_id: str
     correlation: float
-    visual_beta: float # Simplified beta for UI
+    visual_beta: float # Simplified beta for UId
     explanation: str
 
 class PricePoint(BaseModel):
@@ -103,7 +103,7 @@ def search_markets(category: Optional[str] = None):
                 token_id=m['token_id'],
                 question=m['question'],
                 age=m.get('age', 'Active'),
-                volume_24h=0 # We might need to add this to hedge.py if available, currently not exposed
+                volume_24h=m.get('volume_24h', 0)
             ))
         return results
     except Exception as e:
@@ -155,6 +155,10 @@ def analyze(target_id: str, category: str = "global"):
         chart_data = []
         target_series = combined_df[target_id]
         
+        # Calculate actual volatility from returns
+        returns = target_series.pct_change().dropna()
+        volatility = returns.std() if len(returns) > 0 else 0.05
+        
         # Limit to last 100 points for performance
         display_df = combined_df.tail(100)
         
@@ -168,8 +172,12 @@ def analyze(target_id: str, category: str = "global"):
         correlation_results = []
         if corrs is not None:
             sorted_corrs = corrs.sort_values(ascending=False)
-            top_pos = sorted_corrs.head(5)
-            top_neg = sorted_corrs.dropna().tail(5)
+            top_pos = sorted_corrs.head(10)  # Get more positive correlations
+            top_neg = sorted_corrs.dropna().tail(10)  # Get more negative correlations
+            
+            # Calculate betas for each correlation
+            returns_df = combined_df.pct_change().dropna()
+            target_vol = returns_df[target_id].std() if target_id in returns_df.columns else volatility
             
             # Helper to format
             def add_res(items, is_hedge=False):
@@ -177,12 +185,22 @@ def analyze(target_id: str, category: str = "global"):
                     if tid == target_id: continue
                     m_info = next((m for m in valid_markets if m['token_id'] == tid), None)
                     if m_info:
+                        # Calculate actual beta
+                        if tid in returns_df.columns:
+                            hedge_vol = returns_df[tid].std()
+                            if hedge_vol > 0:
+                                beta = score * (target_vol / hedge_vol)
+                            else:
+                                beta = score * 1.2
+                        else:
+                            beta = score * 1.2
+                        
                         explanation = "Strong inverse movement." if is_hedge else "Moves in lockstep."
                         correlation_results.append({
                             "market_title": m_info['title'],
                             "token_id": tid,
                             "correlation": round(score, 2),
-                            "visual_beta": round(score * 1.2, 2), # Mock beta for now
+                            "visual_beta": round(beta, 2),
                             "explanation": explanation
                         })
 
@@ -193,7 +211,7 @@ def analyze(target_id: str, category: str = "global"):
             "target": {
                 "title": target_market['title'],
                 "current_price": chart_data[-1]['target_price'] if chart_data else 0,
-                "volatility": 0.05 # Mock
+                "volatility": round(float(volatility), 4)
             },
             "history": chart_data,
             "correlations": correlation_results

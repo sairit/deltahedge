@@ -35,47 +35,59 @@ class PolymarketAnalyzer:
             
             market_list = []
             for e in events:
-                # We only take the first market of the event for simplicity
                 if e.get('markets'):
-                    m = e['markets'][0]
-                    # We need the 'YES' token usually (index 0 or 1, varies). 
-                    # Generally larger outcome price implies the "favorite" or we just pick the first.
-                    # For consistency, we'll pick the first token ID in the list.
-                    clob_ids = m.get('clobTokenIds', [])
-                    if isinstance(clob_ids, str):
-                        try:
-                            clob_ids = json.loads(clob_ids)
-                        except json.JSONDecodeError:
-                            clob_ids = []
-
-                    if clob_ids:
-                        # Calculate Age
-                        created_at = e.get('creationDate')
-                        age_str = "?"
-                        age_hours = 0
-                        if created_at:
+                    for m in e['markets']:
+                        # Get outcomes - check if binary market
+                        outcomes = m.get('outcomes', [])
+                        clob_ids = m.get('clobTokenIds', [])
+                        
+                        if isinstance(clob_ids, str):
                             try:
-                                create_dt = pd.to_datetime(created_at)
-                                now = pd.Timestamp.now(tz=create_dt.tz)
-                                diff = now - create_dt
-                                age_hours = diff.total_seconds() / 3600
-                                days = diff.days
-                                if days < 1:
-                                    age_str = f"{int(age_hours)}h"
-                                else:
-                                    age_str = f"{days}d"
-                            except:
-                                pass
-
-                        market_list.append({
-                            'title': e['title'],
-                            'question': m['question'],
-                            'token_id': clob_ids[0], # Usually 'Yes' or the primary outcome
-                            'id': m['id'],
-                            'tags': e.get('tags', []),
-                            'age': age_str,
-                            'age_hours': age_hours
-                        })
+                                clob_ids = json.loads(clob_ids)
+                            except json.JSONDecodeError:
+                                clob_ids = []
+                        
+                        # Only include binary markets (exactly 2 token IDs = YES/NO market)
+                        # Check both outcomes and clob_ids to ensure binary market
+                        is_binary = len(clob_ids) == 2
+                        if outcomes:
+                            is_binary = is_binary and len(outcomes) == 2
+                        
+                        if is_binary:
+                            # Calculate Age
+                            created_at = e.get('creationDate')
+                            age_str = "?"
+                            age_hours = 0
+                            if created_at:
+                                try:
+                                    create_dt = pd.to_datetime(created_at)
+                                    now = pd.Timestamp.now(tz=create_dt.tz)
+                                    diff = now - create_dt
+                                    age_hours = diff.total_seconds() / 3600
+                                    days = diff.days
+                                    if days < 1:
+                                        age_str = f"{int(age_hours)}h"
+                                    else:
+                                        age_str = f"{days}d"
+                                except:
+                                    pass
+                            
+                            # Get volume if available
+                            volume_24h = m.get('volume24hr', 0) or e.get('volume24hr', 0)
+                            
+                            # Create market entry for YES outcome (index 0)
+                            market_list.append({
+                                'title': e['title'],
+                                'question': m['question'],
+                                'token_id': clob_ids[0],  # YES token
+                                'id': m['id'],
+                                'tags': e.get('tags', []),
+                                'age': age_str,
+                                'age_hours': age_hours,
+                                'volume_24h': volume_24h,
+                                'outcomes': outcomes,
+                                'is_binary': True
+                            })
             return market_list
         except Exception as e:
             print(f"Error fetching markets: {e}")
